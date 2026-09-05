@@ -117,7 +117,8 @@ def generate_sensor_data():
         "acoustic_level": round(acoustic_level, 2),
         "edge_deviation": round(edge_deviation, 2),
         "belt_speed": round(belt_speed, 2),
-        "carryback_level": round(carryback_level, 2)
+        "carryback_level": round(carryback_level, 2),
+        "belt_thickness": round(random.uniform(8, 15), 2)
     }
 
 
@@ -182,6 +183,33 @@ def calculate_health(sensor):
 
     return max(score, 0)
 
+# ============================================================
+# BELT THICKNESS MONITORING
+# ============================================================
+
+def check_thickness_status(sensor, belt_config):
+    current_thickness = sensor["belt_thickness"]
+    standard_thickness = belt_config["standard_thickness"]
+    minimum_thickness = belt_config["minimum_thickness"]
+
+    if current_thickness < minimum_thickness:
+        return {
+            "status": "CRITICAL",
+            "alarm": True,
+            "message": "BELT THICKNESS BELOW MINIMUM LIMIT"
+        }
+    elif current_thickness < standard_thickness:
+        return {
+            "status": "WARNING",
+            "alarm": False,
+            "message": "BELT THICKNESS BELOW STANDARD LEVEL"
+        }
+    else:
+        return {
+            "status": "NORMAL",
+            "alarm": False,
+            "message": "BELT THICKNESS NORMAL"
+        }
 
 # ============================================================
 # DETERMINE OVERALL STATUS
@@ -199,7 +227,15 @@ def get_overall_status(prediction, health_score):
 # ============================================================
 # SESSION STATE
 # ============================================================
-
+# belt configuration
+if "belt_config" not in st.session_state:
+    st.session_state.belt_config={
+        "belt_id":"BELT_001",
+        "company":"Default Company",
+        "base_splice_value":100.0,
+        "standard_thickness":12.0,
+        "minimum_thickness":9.6
+    }
 if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = generate_sensor_data()
 
@@ -220,6 +256,7 @@ with st.sidebar:
         "Navigation",
         [
             "📡 Live Monitoring",
+            "⚙️ Belt Configuration",
             "🤖 AI Prediction",
             "📊 Analytics",
             "📜 History"
@@ -263,9 +300,20 @@ with col2:
 # ============================================================
 
 sensor = st.session_state.sensor_data
+belt_config = st.session_state.belt_config
+
 prediction = predict_condition(sensor)
 health_score = calculate_health(sensor)
-overall_status = get_overall_status(prediction, health_score)
+
+thickness_result = check_thickness_status(
+    sensor,
+    belt_config
+)
+
+overall_status = get_overall_status(
+    prediction,
+    health_score
+)
 
 current_record = {
     "timestamp": datetime.now().strftime("%H:%M:%S"),
@@ -275,6 +323,7 @@ current_record = {
     "edge_deviation": sensor["edge_deviation"],
     "belt_speed": sensor["belt_speed"],
     "carryback_level": sensor["carryback_level"],
+    "belt_thickness": sensor["belt_thickness"],
     "prediction": prediction,
     "health_score": health_score
 }
@@ -326,7 +375,7 @@ if page == "📡 Live Monitoring":
     st.divider()
 
     st.subheader("Real-Time Sensor Readings")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
         st.metric("📏 Surface Distance", f'{sensor["surface_distance"]} mm')
     with c2:
@@ -337,6 +386,50 @@ if page == "📡 Live Monitoring":
         st.metric("⚡ Belt Speed", f'{sensor["belt_speed"]} m/s')
     with c5:
         st.metric("🧹 Carryback Level", sensor["carryback_level"])
+    with c6:
+        st.metric("📏 Belt Thickness", f'{sensor["belt_thickness"]} mm')
+
+    st.divider()
+
+    # ========================================================
+    # BELT THICKNESS STATUS
+    # ========================================================
+    st.subheader("📏 Belt Thickness Monitoring")
+
+    current_thickness = sensor["belt_thickness"]
+    standard_thickness = belt_config["standard_thickness"]
+    minimum_thickness = belt_config["minimum_thickness"]
+
+    t1, t2, t3 = st.columns(3)
+
+    with t1:
+        st.metric(
+            "Current Thickness",
+            f"{current_thickness} mm"
+        )
+    with t2:
+        st.metric(
+            "Standard Thickness",
+            f"{standard_thickness} mm"
+        )
+    with t3:
+        st.metric(
+            "Minimum Allowed Thickness",
+            f"{minimum_thickness:.2f} mm"
+        )
+
+    if thickness_result["status"] == "CRITICAL":
+        st.error(
+            f"🚨 ALARM: {thickness_result['message']}"
+        )
+    elif thickness_result["status"] == "WARNING":
+        st.warning(
+            f"⚠ {thickness_result['message']}"
+        )
+    else:
+        st.success(
+            f"✓ {thickness_result['message']}"
+        )
 
     st.divider()
 
@@ -362,9 +455,74 @@ if page == "📡 Live Monitoring":
         else:
             st.error("🚨 Critical condition detected. Immediate inspection recommended.")
 
+# ============================================================
+# PAGE 2: BELT CONFIGURATION
+# ============================================================
+
+elif page == "⚙️ Belt Configuration":
+
+    st.header("⚙️ Belt Configuration")
+
+    st.write(
+        "Configure the baseline values and specifications "
+        "for the currently installed conveyor belt."
+    )
+
+    st.divider()
+
+    config = st.session_state.belt_config
+
+    belt_id = st.text_input(
+        "Belt ID",
+        value=config["belt_id"]
+    )
+
+    company = st.text_input(
+        "Company Name",
+        value=config["company"]
+    )
+
+    base_splice_value = st.number_input(
+        "Base Splice Value (mm)",
+        min_value=0.0,
+        value=float(config["base_splice_value"])
+    )
+
+    standard_thickness = st.number_input(
+        "Standard Belt Thickness (mm)",
+        min_value=0.0,
+        value=float(config["standard_thickness"])
+    )
+
+    minimum_percentage = st.slider(
+        "Minimum Allowed Thickness (%)",
+        min_value=50,
+        max_value=100,
+        value=80
+    )
+
+    minimum_thickness = (
+        standard_thickness * minimum_percentage / 100
+    )
+
+    st.info(
+        f"Minimum Allowed Thickness: {minimum_thickness:.2f} mm"
+    )
+
+    if st.button("💾 Save Belt Configuration"):
+
+        st.session_state.belt_config = {
+            "belt_id": belt_id,
+            "company": company,
+            "base_splice_value": base_splice_value,
+            "standard_thickness": standard_thickness,
+            "minimum_thickness": minimum_thickness
+        }
+
+        st.success("Belt configuration saved successfully!")
 
 # ============================================================
-# PAGE 2: AI PREDICTION
+# PAGE 3: AI PREDICTION
 # ============================================================
 
 elif page == "🤖 AI Prediction":
@@ -392,7 +550,7 @@ elif page == "🤖 AI Prediction":
 
 
 # ============================================================
-# PAGE 3: ANALYTICS
+# PAGE 4: ANALYTICS
 # ============================================================
 
 elif page == "📊 Analytics":
@@ -413,7 +571,7 @@ elif page == "📊 Analytics":
 
 
 # ============================================================
-# PAGE 4: HISTORY
+# PAGE 5: HISTORY
 # ============================================================
 
 elif page == "📜 History":
