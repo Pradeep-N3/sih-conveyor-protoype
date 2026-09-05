@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Generated ML files
+*.pkl
+
+# Temporary files
+*.log
