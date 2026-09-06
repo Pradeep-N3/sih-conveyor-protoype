@@ -118,7 +118,8 @@ def generate_sensor_data():
         "edge_deviation": round(edge_deviation, 2),
         "belt_speed": round(belt_speed, 2),
         "carryback_level": round(carryback_level, 2),
-        "belt_thickness": round(random.uniform(8, 15), 2)
+        "belt_thickness": round(random.uniform(8, 15), 2),
+        "splice_value": round(random.uniform(85, 120), 2)
     }
 
 
@@ -212,13 +213,64 @@ def check_thickness_status(sensor, belt_config):
         }
 
 # ============================================================
+# SPLICE BASELINE MONITORING
+# ============================================================
+
+def check_splice_status(sensor, belt_config):
+    current_splice = sensor["splice_value"]
+    base_splice = belt_config["base_splice_value"]
+    deviation = abs(current_splice - base_splice)
+
+    if deviation > 10:
+        return {
+            "status": "CRITICAL",
+            "alarm": True,
+            "deviation": deviation,
+            "message": "SPLICE DEVIATION EXCEEDS CRITICAL LIMIT"
+        }
+    elif deviation > 5:
+        return {
+            "status": "WARNING",
+            "alarm": False,
+            "deviation": deviation,
+            "message": "SPLICE DEVIATION DETECTED"
+        }
+    else:
+        return {
+            "status": "NORMAL",
+            "alarm": False,
+            "deviation": deviation,
+            "message": "SPLICE CONDITION NORMAL"
+        }
+
+# ============================================================
 # DETERMINE OVERALL STATUS
 # ============================================================
 
-def get_overall_status(prediction, health_score):
-    if health_score < 40 or prediction == "CRITICAL":
+def get_overall_status(
+    prediction,
+    health_score,
+    thickness_result,
+    splice_result
+):
+    # Critical conditions have highest priority
+    if thickness_result["status"] == "CRITICAL":
         return "CRITICAL"
-    elif health_score < 70 or prediction == "WARNING":
+    elif splice_result["status"] == "CRITICAL":
+        return "CRITICAL"
+    elif health_score < 40:
+        return "CRITICAL"
+    elif prediction == "CRITICAL":
+        return "CRITICAL"
+    
+    # Warning conditions
+    elif thickness_result["status"] == "WARNING":
+        return "WARNING"
+    elif splice_result["status"] == "WARNING":
+        return "WARNING"
+    elif prediction == "WARNING":
+        return "WARNING"
+    elif health_score < 70:
         return "WARNING"
     else:
         return "HEALTHY"
@@ -310,9 +362,16 @@ thickness_result = check_thickness_status(
     belt_config
 )
 
+splice_result = check_splice_status(
+    sensor,
+    belt_config
+)
+
 overall_status = get_overall_status(
     prediction,
-    health_score
+    health_score,
+    thickness_result,
+    splice_result
 )
 
 current_record = {
@@ -324,8 +383,11 @@ current_record = {
     "belt_speed": sensor["belt_speed"],
     "carryback_level": sensor["carryback_level"],
     "belt_thickness": sensor["belt_thickness"],
+    "splice_value": sensor["splice_value"],
     "prediction": prediction,
-    "health_score": health_score
+    "health_score": health_score,
+    "thickness_status": thickness_result["status"],
+    "splice_status": splice_result["status"]
 }
 
 if not st.session_state.history or st.session_state.history[-1]["timestamp"] != current_record["timestamp"]:
@@ -375,19 +437,21 @@ if page == "📡 Live Monitoring":
     st.divider()
 
     st.subheader("Real-Time Sensor Readings")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     with c1:
-        st.metric("📏 Surface Distance", f'{sensor["surface_distance"]} mm')
+        st.metric("📏 Surface Dist", f'{sensor["surface_distance"]} mm')
     with c2:
-        st.metric("🔊 Acoustic Level", f'{sensor["acoustic_level"]} dB')
+        st.metric("🔊 Acoustic", f'{sensor["acoustic_level"]} dB')
     with c3:
-        st.metric("📐 Edge Deviation", f'{sensor["edge_deviation"]} mm')
+        st.metric("📐 Edge Dev", f'{sensor["edge_deviation"]} mm')
     with c4:
-        st.metric("⚡ Belt Speed", f'{sensor["belt_speed"]} m/s')
+        st.metric("⚡ Speed", f'{sensor["belt_speed"]} m/s')
     with c5:
-        st.metric("🧹 Carryback Level", sensor["carryback_level"])
+        st.metric("🧹 Carryback", sensor["carryback_level"])
     with c6:
-        st.metric("📏 Belt Thickness", f'{sensor["belt_thickness"]} mm')
+        st.metric("📏 Thickness", f'{sensor["belt_thickness"]} mm')
+    with c7:
+        st.metric("🔗 Splice Val", f'{sensor["splice_value"]} mm')
 
     st.divider()
 
@@ -429,6 +493,52 @@ if page == "📡 Live Monitoring":
     else:
         st.success(
             f"✓ {thickness_result['message']}"
+        )
+
+    st.divider()
+
+    # ========================================================
+    # SPLICE BASELINE MONITORING
+    # ========================================================
+
+    st.subheader("🔗 Splice Baseline Monitoring")
+
+    current_splice = sensor["splice_value"]
+    base_splice = belt_config["base_splice_value"]
+    splice_deviation = splice_result["deviation"]
+
+    s1, s2, s3 = st.columns(3)
+
+    with s1:
+        st.metric(
+            "Base Splice Value",
+            f"{base_splice} mm"
+        )
+
+    with s2:
+        st.metric(
+            "Current Splice Value",
+            f"{current_splice} mm"
+        )
+
+    with s3:
+        st.metric(
+            "Splice Deviation",
+            f"{splice_deviation:.2f} mm"
+        )
+
+    # Display Splice Status
+    if splice_result["status"] == "CRITICAL":
+        st.error(
+            f"🚨 ALARM: {splice_result['message']}"
+        )
+    elif splice_result["status"] == "WARNING":
+        st.warning(
+            f"⚠ {splice_result['message']}"
+        )
+    else:
+        st.success(
+            f"✓ {splice_result['message']}"
         )
 
     st.divider()
