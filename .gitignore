@@ -4,8 +4,6 @@ __pycache__/
 venv/
 .env
 
-# Generated ML files
-*.pkl
 
 # Temporary files
 *.log
